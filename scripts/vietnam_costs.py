@@ -65,6 +65,6 @@ def damage_costs_per_area_vietnam(x, rehab_costs,length_factor,national=False):
         rehab_cost = rehab_costs.rate_m.min()
         rehab_corr = rehab_costs.design_width.min()
 
-    rehab_cost = rehab_cost/rehab_corr
+    rehab_cost = x.width*rehab_cost/rehab_corr
 
     return rehab_cost
