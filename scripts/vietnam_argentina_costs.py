@@ -68,3 +68,20 @@ def damage_costs_per_area_vietnam(x, rehab_costs,length_factor,national=False):
     rehab_cost = x.width*rehab_cost/rehab_corr
 
     return rehab_cost
+
+def get_rehab_costs_argentina(x,adapt):
+
+    adapt = pd.read_excel(os.path.join(data_path,'adaptation_costs','ROCKS - Database - ARNG (Version 2.3) Feb2018.xls'),
+            sheet_name = 'Resultados Consolidados',
+            skiprows=6,
+            nrows=9,
+            usecols = [2,4,5],
+            encoding='utf-8-sig').fillna('No value')
+
+    adapt.columns = ['option','cost_perkm','climate_uplift_perkm']
+    adapt = adapt[~adapt.option.isin(['Subtotal','No value'])]
+
+    cost_rehab = adapt.loc[adapt['option']=='Reconstruction','cost_perkm'].values[0] + \
+                    adapt.loc[adapt['option']=='Reconstruction','climate_uplift_perkm'].values[0]
+    
+    return cost_rehab
