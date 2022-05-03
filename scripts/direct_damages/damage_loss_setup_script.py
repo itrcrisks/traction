@@ -10,8 +10,8 @@ import subprocess
 
 def main(config):
     processed_data_path = config['paths']['data']
-    results_path = config['paths']['output']
-    
+    results_path = config['paths']['results']
+
     hazard_csv = os.path.join(processed_data_path,
                             "hazards",
                             "hazard_layers.csv")
@@ -49,6 +49,8 @@ def main(config):
     
     f.close()
 
+    num_blocks = len(param_values)
+
     with open("damage_results.txt","w+") as f:
         with open(parameter_combinations_file,"r") as r:
             for p in r:
@@ -57,7 +59,11 @@ def main(config):
     
     f.close()
 
-    num_blocks = len(param_values)
+    # param_values = pd.read_csv("parameter_combinations.txt", sep=",")
+    # num_blocks = len(param_values)
+    # flood_protection_column = "None"
+    # parameter_combinations_file = "parameter_combinations.txt"
+
     """Next we call the failure analysis script and loop through the failure scenarios
     """
     args = ["parallel",
@@ -123,8 +129,6 @@ def main(config):
     print ("* Start the processing of timeseries and NPV calculations")
     print (args)
     subprocess.run(args)
-
-
 
                                 
 if __name__ == '__main__':

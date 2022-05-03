@@ -26,9 +26,9 @@ def main(config,results_folder,
     
     incoming_data_path = config['paths']['incoming_data']
     processed_data_path = config['paths']['data']
-    output_data_path = config['paths']['output']
+    results_data_path = config['paths']['results']
 
-    direct_damages_results = os.path.join(output_data_path,results_folder)
+    direct_damages_results = os.path.join(results_data_path,results_folder)
     asset_data_details = pd.read_csv(network_csv)
 
     for asset_info in asset_data_details.itertuples():
@@ -49,7 +49,7 @@ def main(config,results_folder,
             loss_column = []
             if asset_info.single_failure_scenarios != "none":
                 loss_column = ["economic_loss"]
-                loss_df = pd.read_csv(os.path.join(output_data_path,asset_info.single_failure_scenarios))
+                loss_df = pd.read_csv(os.path.join(results_data_path,asset_info.single_failure_scenarios))
                 df = pd.merge(df,loss_df[[asset_info.asset_id_column,"economic_loss"]],
                                 how="left",on=[asset_info.asset_id_column]).fillna(0)
                 df["economic_loss_unit"] = "J$/day"
@@ -58,8 +58,10 @@ def main(config,results_folder,
             
             hazard_data_details = pd.read_csv(hazard_csv,encoding="latin1").fillna(0)
             hazard_data_details = hazard_data_details[hazard_data_details.key.isin(hazard_columns)]
-            haz_rcp_epoch_confidence = list(set(hazard_data_details.set_index(["hazard","rcp","epoch","confidence"]).index.values.tolist()))
-            for i,(haz,rcp,epoch,confidence) in enumerate(haz_rcp_epoch_confidence):
+            # haz_rcp_epoch_confidence = list(set(hazard_data_details.set_index(["hazard","rcp","epoch","confidence"]).index.values.tolist()))
+            haz_rcp_epoch_confidence_subsidence_model = list(set(hazard_data_details.set_index(["hazard","rcp","epoch","confidence","subsidence","model"]).index.values.tolist()))
+            # for i,(haz,rcp,epoch,confidence) in enumerate(haz_rcp_epoch_confidence):
+            for i,(haz,rcp,epoch,confidence,subsidence,model) in enumerate(haz_rcp_epoch_confidence_subsidence_model):
                 index_columns = [asset_id,"damage_cost_unit","economic_loss_unit"]
                 haz_df = hazard_data_details[
                                     (hazard_data_details.hazard == haz
@@ -68,7 +70,12 @@ def main(config,results_folder,
                                     ) & (
                                     hazard_data_details.epoch == epoch
                                     ) & (
-                                    hazard_data_details.confidence == confidence)]
+                                    hazard_data_details.confidence == confidence
+                                    ) & (
+                                    hazard_data_details.subsidence == subsidence
+                                    ) & (
+                                    hazard_data_details.model == model
+                                    )]
                 haz_cols, haz_rps = map(list,list(zip(*sorted(
                                             list(zip(haz_df.key.values.tolist(),
                                             haz_df.rp.values.tolist()
@@ -80,8 +87,10 @@ def main(config,results_folder,
                 damages["rcp"] = rcp
                 damages["epoch"] = epoch
                 damages["confidence"] = confidence
-                damages.columns = index_columns + loss_column + haz_prob + ["hazard","rcp","epoch","confidence"] 
-                index_columns += ["hazard","rcp","epoch","confidence"] 
+                damages["subsidence"] = subsidence
+                damages["model"] = model
+                damages.columns = index_columns + loss_column + haz_prob + ["hazard","rcp","epoch","confidence","subsidence","model"] 
+                index_columns += ["hazard","rcp","epoch","confidence","subsidence","model"] 
                 damages = damages[damages[haz_prob].sum(axis=1) > 0]
                 losses = damages.copy()
                 losses.columns = losses.columns.map(str)

@@ -24,11 +24,11 @@ def main(config,direct_damages_folder,
 
     incoming_data_path = config['paths']['incoming_data']
     processed_data_path = config['paths']['data']
-    output_data_path = config['paths']['output']
+    results_data_path = config['paths']['results']
     
-    direct_damages_results = os.path.join(output_data_path,direct_damages_folder)
+    direct_damages_results = os.path.join(results_data_path,direct_damages_folder)
 
-    summary_results = os.path.join(output_data_path,summary_results_folder)
+    summary_results = os.path.join(results_data_path,summary_results_folder)
     if os.path.exists(summary_results) == False:
         os.mkdir(summary_results)
 
@@ -67,6 +67,8 @@ def main(config,direct_damages_folder,
                                         dropna=False).agg(sum_dict).reset_index()
             exposures.to_parquet(os.path.join(summary_results,
                             f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_exposures.parquet"),index=False)
+            exposures.to_csv(os.path.join(summary_results,
+                            f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_exposures.csv"),index=False)
             del exposures
             
             damages = []
@@ -80,7 +82,7 @@ def main(config,direct_damages_folder,
                 if asset_info.single_failure_scenarios != "none":
                     loss_column = ["economic_loss"]
                     if asset_info.sector != "buildings":
-                        loss_df = pd.read_csv(os.path.join(output_data_path,asset_info.single_failure_scenarios))
+                        loss_df = pd.read_csv(os.path.join(results_data_path,asset_info.single_failure_scenarios))
                         if asset_info.asset_gpkg == "potable_facilities_NWC":
                             loss_df[asset_id] = loss_df.progress_apply(
                                 lambda x: str(x[asset_id]).lower().replace(" ","_").replace(".0",""),
@@ -102,6 +104,8 @@ def main(config,direct_damages_folder,
                 damages = quantiles(damages,[asset_id,'damage_cost_unit'],hazard_columns)
                 damages.to_parquet(os.path.join(summary_results,
                             f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_damages.parquet"),index=False)
+                damages.to_csv(os.path.join(summary_results,
+                            f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_damages.csv"),index=False)
             del damages
 
             if len(losses) > 0:
@@ -111,6 +115,8 @@ def main(config,direct_damages_folder,
                     losses = quantiles(losses,[asset_id,'economic_loss_unit'],hazard_columns)
                     losses.to_parquet(os.path.join(summary_results,
                                 f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_losses.parquet"),index=False)
+                    losses.to_csv(os.path.join(summary_results,
+                                f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_losses.csv"),index=False)
             del losses
         # Process the EAD and EAEL results 
         damage_files = [os.path.join(
@@ -131,7 +137,7 @@ def main(config,direct_damages_folder,
                 damages = [df[(df.hazard == haz) & (df.rcp == rcp) & (df.epoch == epoch)] for df in damage_results]
                 damages = pd.concat(damages,axis=0,ignore_index=True)
                 # print ("* Done with concatinating all dataframes")
-                damages.drop("confidence",axis=1,inplace=True)
+                damages.drop(["confidence","subsidence","model"],axis=1,inplace=True)
             
                 index_columns = [c for c in damages.columns.values.tolist() if ("EAD_" not in c) and ("EAEL_" not in c)]
                 index_columns = [i for i in index_columns if i not in uncertainty_columns]
@@ -140,8 +146,12 @@ def main(config,direct_damages_folder,
                 if len(damages.index) > 0:
                     summarised_damages.append(quantiles(damages,index_columns,damage_columns))
             summarised_damages = pd.concat(summarised_damages,axis=0,ignore_index=True)
+            
+            summarised_damages.to_parquet(os.path.join(summary_results,
+                        f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_EAD_EAEL.parquet"),index=False)
             summarised_damages.to_csv(os.path.join(summary_results,
                         f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_EAD_EAEL.csv"),index=False)
+            
             # print (len(summarised_damages.index))
             del summarised_damages
         print (f"* Done with {asset_info.asset_gpkg} {asset_info.asset_layer}")

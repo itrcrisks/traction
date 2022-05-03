@@ -14,7 +14,7 @@ from analysis_utils import *
 from tqdm import tqdm
 tqdm.pandas()
 
-epsg_project = 4326
+epsg_project = 3857
 
 
 def get_damage_data(x,damage_data_path,
@@ -40,12 +40,14 @@ def convert_cost_units(x,cost_value,cost_unit,conversion_rate):
         return x[cost_value]
 
 def modify_cost_units(x,cost_dimension,damage_cost_column='damage_cost'):
+    if any(i in str(x[cost_dimension]) for i in ["ln","lane"]):
+        x[damage_cost_column] = x[damage_cost_column]*x["lanes"]
     if '/km' in str(x[cost_dimension]):
         return 0.001*x[damage_cost_column]
     else:
         return x[damage_cost_column]
 
-def add_exposure_dimensions(dataframe,dataframe_type="nodes",epsg=4326):
+def add_exposure_dimensions(dataframe,dataframe_type="nodes",epsg=epsg_project):
     geo_dataframe = gpd.GeoDataFrame(dataframe,
                                 geometry = 'geometry',
                                 crs={'init': f'epsg:{epsg}'})
@@ -97,15 +99,25 @@ def main(config,results_folder,
         set_count,cost_uncertainty_parameter,damage_uncertainty_parameter):
     incoming_data_path = config['paths']['incoming_data']
     processed_data_path = config['paths']['data']
-    output_data_path = config['paths']['output']
+    results_data_path = config['paths']['results']
 
-    direct_damages_results = os.path.join(output_data_path,results_folder)
+    direct_damages_results = os.path.join(results_data_path,results_folder)
     if os.path.exists(direct_damages_results) == False:
         os.mkdir(direct_damages_results)
 
     hazard_asset_intersection_path = os.path.join(
-                                output_data_path,
+                                results_data_path,
                                 "hazard_asset_intersection")
+
+    hazard_data_path = os.path.join(processed_data_path,
+                            "hazards",
+                            "layers")
+    hazard_data_files = []
+    for root, dirs, files in os.walk(hazard_data_path):
+        for file in files:
+            if file.endswith("with_transforms.csv"):
+                hazard_data_files.append(file)
+
     damage_curve_data_path = os.path.join(processed_data_path,
                                             "damage_curves")
     
@@ -150,74 +162,77 @@ def main(config,results_folder,
                                                                 )
         asset_df['damage_cost'] = asset_df.progress_apply(lambda x:modify_cost_units(x,asset_cost_unit),axis=1)
         hazard_damages = []
-        hazard_intersection_file = os.path.join(hazard_asset_intersection_path,
-                                f"{asset_info.asset_gpkg}_splits__hazard_layers__{asset_info.asset_layer}.geoparquet")
-        if os.path.isfile(hazard_intersection_file) is True: 
-            hazard_df = gpd.read_parquet(hazard_intersection_file)
-            hazard_df = hazard_df.to_crs(epsg=epsg_project)
-            hazard_df = add_exposure_dimensions(hazard_df,
-                                                dataframe_type=asset_info.asset_layer,
-                                                epsg=epsg_project)
-            for hazard_info in hazard_attributes.itertuples():
-                if getattr(asset_info,f"{hazard_info.hazard}_asset_damage_lookup_column") != 'none':
-                    asset_hazard = getattr(asset_info,f"{hazard_info.hazard}_asset_damage_lookup_column")
-                    hazard_keys = hazard_data_details[hazard_data_details["hazard"] == hazard_info.hazard]["key"].values.tolist()
-                    hazard_effect_df = hazard_df[[asset_id,'exposure','exposure_unit'] + hazard_keys]
-                    damages_df = damage_curves[
-                                                (
-                                                    damage_curves['sector'] == asset_sector
-                                                ) & (
-                                                    damage_curves['hazard'] == hazard_info.hazard
-                                                    )
-                                                ]
-                    damaged_assets = list(set(damages_df['asset_name'].values.tolist()))
-                    affected_assets_df = asset_df[
-                                                asset_df[asset_hazard].isin(damaged_assets)
-                                                ][[asset_id,asset_hazard,asset_cost_unit,'damage_cost']]
-                    damaged_assets = list(set(affected_assets_df[asset_hazard].values.tolist()))
-                    damages_df = damages_df[damages_df['asset_name'].isin(damaged_assets)]
-                    affected_assets = list(set(affected_assets_df[asset_id].values.tolist()))
-                    hazard_effect_df["hazard_threshold"] = hazard_info.hazard_threshold
-                    if hazard_info.hazard in flood_hazards:
-                        hazard_effect_df[hazard_keys] = hazard_effect_df[hazard_keys] - hazard_info.hazard_threshold
-                        hazard_effect_df = hazard_effect_df[(hazard_effect_df[hazard_keys]>0).any(axis=1)]
-                        hazard_effect_df = hazard_effect_df[hazard_effect_df[asset_id].isin(affected_assets)]
+
+        for hazard_file in hazard_data_files:
+            hazard_intersection_file = os.path.join(hazard_asset_intersection_path,
+                                        f"{asset_info.asset_gpkg}_splits__{hazard_file.replace('__with_transforms.csv','')}__{asset_info.asset_layer}.geoparquet")
+            hazard_data_details = pd.read_csv(os.path.join(hazard_data_path,hazard_file),encoding="latin1")
+            if os.path.isfile(hazard_intersection_file) is True: 
+                hazard_df = gpd.read_parquet(hazard_intersection_file)
+                hazard_df = hazard_df.to_crs(epsg=epsg_project)
+                hazard_df = add_exposure_dimensions(hazard_df,
+                                                    dataframe_type=asset_info.asset_layer,
+                                                    epsg=epsg_project)
+                for hazard_info in hazard_attributes.itertuples():
+                    if getattr(asset_info,f"{hazard_info.hazard}_asset_damage_lookup_column") != 'none':
+                        asset_hazard = getattr(asset_info,f"{hazard_info.hazard}_asset_damage_lookup_column")
+                        hazard_keys = hazard_data_details[hazard_data_details["hazard"] == hazard_info.hazard]["key"].values.tolist()
+                        hazard_effect_df = hazard_df[[asset_id,'exposure','exposure_unit'] + hazard_keys]
+                        damages_df = damage_curves[
+                                                    (
+                                                        damage_curves['sector'] == asset_sector
+                                                    ) & (
+                                                        damage_curves['hazard'] == hazard_info.hazard
+                                                        )
+                                                    ]
+                        damaged_assets = list(set(damages_df['asset_name'].values.tolist()))
+                        affected_assets_df = asset_df[
+                                                    asset_df[asset_hazard].isin(damaged_assets)
+                                                    ][[asset_id,asset_hazard,asset_cost_unit,'damage_cost']]
+                        damaged_assets = list(set(affected_assets_df[asset_hazard].values.tolist()))
+                        damages_df = damages_df[damages_df['asset_name'].isin(damaged_assets)]
+                        affected_assets = list(set(affected_assets_df[asset_id].values.tolist()))
+                        hazard_effect_df["hazard_threshold"] = hazard_info.hazard_threshold
+                        if hazard_info.hazard in flood_hazards:
+                            hazard_effect_df[hazard_keys] = hazard_effect_df[hazard_keys] - hazard_info.hazard_threshold
+                            hazard_effect_df = hazard_effect_df[(hazard_effect_df[hazard_keys]>0).any(axis=1)]
+                            hazard_effect_df = hazard_effect_df[hazard_effect_df[asset_id].isin(affected_assets)]
+                        else:
+                            hazard_effect_df[hazard_keys] = np.where(hazard_effect_df[hazard_keys]<=hazard_info.hazard_threshold,
+                                                                    0,hazard_effect_df[hazard_keys])
+                            hazard_effect_df = hazard_effect_df[(hazard_effect_df[hazard_keys]>hazard_info.hazard_threshold).any(axis=1)]
+                            hazard_effect_df = hazard_effect_df[hazard_effect_df[asset_id].isin(affected_assets)]
+
+                        if len(hazard_effect_df.index) == 0:
+                            print (f"* No {hazard_info.hazard} intersections with {asset_info.asset_gpkg} {asset_info.asset_layer}")
+                        else: 
+                            hazard_effect_df = pd.merge(hazard_effect_df,affected_assets_df,how='left',on=[asset_id])
+                            # print (hazard_info.key)
+                            for damage_info in damages_df.itertuples():
+                                hazard_asset_effect_df = hazard_effect_df[hazard_effect_df[asset_hazard] == damage_info.asset_name]
+                                if len(hazard_asset_effect_df.index) > 0:
+                                    hazard_asset_effect_df[hazard_keys] = interp1d(damage_info.damage_x_data,damage_info.damage_y_data,
+                                                fill_value=(min(damage_info.damage_y_data),max(damage_info.damage_y_data)),
+                                                bounds_error=False)(hazard_asset_effect_df[hazard_keys])
+                                    hazard_asset_effect_df = estimate_direct_damage_costs_and_units(hazard_asset_effect_df,
+                                                                hazard_keys,asset_cost_unit,dataframe_type=asset_info.asset_layer)
+                                    
+                                    sum_dict = dict([(hk,"sum") for hk in hazard_keys])
+                                    hazard_asset_effect_df = hazard_asset_effect_df.groupby([asset_id,
+                                                            'exposure_unit',
+                                                            'damage_cost_unit',
+                                                            'exposure'
+                                                            ],
+                                                            dropna=False).agg(sum_dict).reset_index()
+
+                                    hazard_asset_effect_df['damage_uncertainty_parameter'] = damage_uncertainty_parameter
+                                    hazard_asset_effect_df['cost_uncertainty_parameter'] = cost_uncertainty_parameter
+                                    hazard_damages.append(hazard_asset_effect_df)
+
+                                del hazard_asset_effect_df
+                            del hazard_effect_df
                     else:
-                        hazard_effect_df[hazard_keys] = np.where(hazard_effect_df[hazard_keys]<=hazard_info.hazard_threshold,
-                                                                0,hazard_effect_df[hazard_keys])
-                        hazard_effect_df = hazard_effect_df[(hazard_effect_df[hazard_keys]>hazard_info.hazard_threshold).any(axis=1)]
-                        hazard_effect_df = hazard_effect_df[hazard_effect_df[asset_id].isin(affected_assets)]
-
-                    if len(hazard_effect_df.index) == 0:
-                        print (f"* No {hazard_info.hazard} intersections with {asset_info.asset_gpkg} {asset_info.asset_layer}")
-                    else: 
-                        hazard_effect_df = pd.merge(hazard_effect_df,affected_assets_df,how='left',on=[asset_id])
-                        # print (hazard_info.key)
-                        for damage_info in damages_df.itertuples():
-                            hazard_asset_effect_df = hazard_effect_df[hazard_effect_df[asset_hazard] == damage_info.asset_name]
-                            if len(hazard_asset_effect_df.index) > 0:
-                                hazard_asset_effect_df[hazard_keys] = interp1d(damage_info.damage_x_data,damage_info.damage_y_data,
-                                            fill_value=(min(damage_info.damage_y_data),max(damage_info.damage_y_data)),
-                                            bounds_error=False)(hazard_asset_effect_df[hazard_keys])
-                                hazard_asset_effect_df = estimate_direct_damage_costs_and_units(hazard_asset_effect_df,
-                                                            hazard_keys,asset_cost_unit,dataframe_type=asset_info.asset_layer)
-                                
-                                sum_dict = dict([(hk,"sum") for hk in hazard_keys])
-                                hazard_asset_effect_df = hazard_asset_effect_df.groupby([asset_id,
-                                                        'exposure_unit',
-                                                        'damage_cost_unit',
-                                                        'exposure'
-                                                        ],
-                                                        dropna=False).agg(sum_dict).reset_index()
-
-                                hazard_asset_effect_df['damage_uncertainty_parameter'] = damage_uncertainty_parameter
-                                hazard_asset_effect_df['cost_uncertainty_parameter'] = cost_uncertainty_parameter
-                                hazard_damages.append(hazard_asset_effect_df)
-
-                            del hazard_asset_effect_df
-                        del hazard_effect_df
-                else:
-                    print (f"* {asset_info.asset_gpkg} {asset_info.asset_layer} not affected by {hazard_info.hazard}")
+                        print (f"* {asset_info.asset_gpkg} {asset_info.asset_layer} not affected by {hazard_info.hazard}")
         if len(hazard_damages) > 0:
             asset_damages_results = os.path.join(direct_damages_results,f"{asset_info.asset_gpkg}_{asset_info.asset_layer}")
             if os.path.exists(asset_damages_results) == False:
@@ -227,6 +242,12 @@ def main(config,results_folder,
                         asset_damages_results,
                         f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_direct_damages_parameter_set_{set_count}.parquet"),
                         index=False)
+            hazard_damages.to_csv(os.path.join(
+                        asset_damages_results,
+                        f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_direct_damages_parameter_set_{set_count}.csv"),
+                        index=False)
+        else: 
+            print("Problem.")
 
 if __name__ == "__main__":
     CONFIG = load_config()
@@ -239,6 +260,7 @@ if __name__ == "__main__":
         set_count = str(sys.argv[6])
         cost_uncertainty_parameter = float(sys.argv[7])
         damage_uncertainty_parameter = float(sys.argv[8])
+
     except IndexError:
         print("Got arguments", sys.argv)
         exit()

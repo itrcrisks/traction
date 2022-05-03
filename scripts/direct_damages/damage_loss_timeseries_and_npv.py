@@ -23,7 +23,9 @@ def estimate_time_series(summarised_damages,
 						risk_type,val_type,
                         baseline_year,projection_end_year,
                         growth_rates,discounting_rate,discounted_values,timeseries_results):
+    summarised_damages.epoch= summarised_damages.epoch.astype(int)
     years = sorted(list(set(summarised_damages.epoch.values.tolist())))
+    
     start_year = years[0]
     end_year = years[-1]
     
@@ -38,7 +40,7 @@ def estimate_time_series(summarised_damages,
     timeseries = np.arange(start_year,end_year+1,1)
     hazard_rcp = list(set(zip(summarised_damages.hazard.values.tolist(),summarised_damages.rcp.values.tolist())))
     hazard_rcp = [hz_rcp for hz_rcp in hazard_rcp if hz_rcp[1] != "baseline"]
-
+    
     defence_column = [c for c in summarised_damages.columns.values.tolist() if f"{risk_type}_" in c and f"_{val_type}" in c][0]
     damages_time_series = []
     for ix, (haz,rcp) in enumerate(hazard_rcp):
@@ -47,12 +49,14 @@ def estimate_time_series(summarised_damages,
                                 ) & (
                                 summarised_damages["rcp"].isin(["baseline",rcp])
                                 )]
+        haz_rcp_damages.drop(haz_rcp_damages[(haz_rcp_damages['rcp'] == 'baseline') & (haz_rcp_damages['epoch'].isin([2030,2050,2080]))].index, inplace = True)
         years = sorted(list(set(haz_rcp_damages.epoch.values.tolist())))
+
         df = (haz_rcp_damages.set_index(index_columns).pivot(
                             columns="epoch"
                             )[defence_column].reset_index().rename_axis(None, axis=1)).fillna(0)
-        series = np.array([list(timeseries)*len(df.index)]).reshape(len(df.index),len(timeseries))
         df["rcp"] = rcp
+        series = np.array([list(timeseries)*len(df.index)]).reshape(len(df.index),len(timeseries))
         df[series[0]] = interp1d(years,df[years],fill_value="extrapolate",bounds_error=False)(series[0])
         df[series[0]] = df[series[0]].clip(lower=0.0)
         if risk_type == "EAEL":
@@ -75,18 +79,18 @@ def main(config,summary_results_folder,
         timeseries_results_folder,
         discounted_results_folder,
         network_csv,
-        baseline_year=2019,projection_end_year=2100,discounting_rate=10):
+        baseline_year=2020,projection_end_year=2100,discounting_rate=10):
     incoming_data_path = config['paths']['incoming_data']
     processed_data_path = config['paths']['data']
-    output_data_path = config['paths']['output']
+    results_data_path = config['paths']['results']
     
-    summary_results = os.path.join(output_data_path,summary_results_folder)
+    summary_results = os.path.join(results_data_path,summary_results_folder)
     
-    timeseries_results = os.path.join(output_data_path,timeseries_results_folder)
+    timeseries_results = os.path.join(results_data_path,timeseries_results_folder)
     if os.path.exists(timeseries_results) == False:
         os.mkdir(timeseries_results)
 
-    discounted_results = os.path.join(output_data_path,discounted_results_folder)
+    discounted_results = os.path.join(results_data_path,discounted_results_folder)
     if os.path.exists(discounted_results) == False:
         os.mkdir(discounted_results)
     
@@ -103,9 +107,10 @@ def main(config,summary_results_folder,
                         f"{asset_info.asset_gpkg}_{asset_info.asset_layer}_EAD_EAEL.csv")
         if os.path.isfile(file) is True:
             summarised_damages = pd.read_csv(file)
+            summarised_damages.loc[summarised_damages["epoch"] == "hist","epoch"] = baseline_year
 
             discounted_values = []
-            for risk_type in ["EAD","EAEL"]:
+            for risk_type in ["EAD"]: # "EAD","EAEL"
                 for val_type in ["amin","mean","amax"]:
                     if risk_type == "EAEL": 
                         eael_exists = [c for c in summarised_damages.columns.values.tolist() if "EAEL_" in c]

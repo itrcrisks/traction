@@ -49,6 +49,8 @@ def get_damage_data(x,damage_data_path,
     return x_data.values, y_data.values
 
 def modify_cost_units(x,cost_dimension,damage_cost_column='damage_cost'):
+    if any(i in str(x[cost_dimension]) for i in ["ln","lane"]):
+        x[damage_cost_column] = x[damage_cost_column]*x[lanes]
     if '/km' in str(x[cost_dimension]):
         return 0.001*x[damage_cost_column]
     else:
