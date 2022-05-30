@@ -55,7 +55,7 @@ def main(config):
         with open(parameter_combinations_file,"r") as r:
             for p in r:
                 pv = p.split(",")
-                f.write(f"{damage_results_folder},{network_csv},{hazard_csv},{damage_curves_csv},{hazard_damage_parameters_csv},{pv[0]},{pv[1]},{pv[2]}\n")
+                f.write(f"{damage_results_folder},{network_csv},{hazard_csv},{damage_curves_csv},{hazard_damage_parameters_csv},{pv[0]},{pv[1]},{pv[2]}")
     
     f.close()
 
@@ -83,7 +83,7 @@ def main(config):
         with open(parameter_combinations_file,"r") as r:
             for p in r:
                 pv = p.split(",")
-                f.write(f"{damage_results_folder},{network_csv},{hazard_csv},{flood_protection_column},{pv[0]},{pv[1]},{pv[2]}\n")
+                f.write(f"{damage_results_folder},{network_csv},{hazard_csv},{flood_protection_column},{pv[0]},{pv[1]},{pv[2]}")
     
     f.close()
 
